@@ -3,6 +3,7 @@
 | Version | Description                                            | Reference                                     |
 | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
 | v1.1.0 | CourseSettingsSerializer adds show_ai_score (default=False) | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.3 |
+| v1.2.0 | Added CourseMembershipsImportSerializer for bulk membership import with optional group | REQ: 20260908-课程名单分组导入 TECH: 04_design_tech-design.md §3.3 |
 /@changelog
 
 @author chuckyang123
@@ -236,6 +237,28 @@ class CourseMemberCreationDataSerializer(serializers.Serializer):
 
 class BatchMembershipCreationSerializer(serializers.Serializer):
     member_creation_data = serializers.JSONField()
+
+
+class CourseMembershipsImportSerializer(serializers.Serializer):
+    """
+    Accepts a list of row objects; per-row field semantics (email format,
+    group length, duplicates, conflicts) are validated inside logic during
+    import so that a single bad row does not reject the whole file.
+    """
+
+    rows = serializers.JSONField()
+
+    def validate_rows(self, value):
+        if not isinstance(value, list) or not value:
+            raise serializers.ValidationError(
+                "rows must be a non-empty array of row objects."
+            )
+        for row in value:
+            if not isinstance(row, dict):
+                raise serializers.ValidationError(
+                    "Each row must be an object with at least an email field."
+                )
+        return value
 
 class PutCourseSubmissionViewableGroupsSerializer(serializers.Serializer):
     group_ids = serializers.ListField(child=IdField(required=True))

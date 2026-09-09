@@ -1,13 +1,24 @@
+/**
+ * @changelog
+ * | Version | Description                                            | Reference                                     |
+ * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+ * | v1.1.0 | Added batchImportCourseMemberships mutation            | REQ: 20260908-课程名单分组导入 TECH: 04_design_tech-design.md §3.3 |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 import baseApi from "./base-api";
 import { cacher } from "./api-cache-utils";
 import {
   CourseMemberData,
   CourseMembershipBatchCreateData,
   CourseMembershipPatchData,
+  MembershipImportData,
+  MembershipImportResult,
 } from "../../types/courses";
 
 const membersApi = baseApi
-  .enhanceEndpoints({ addTagTypes: ["Member"] })
+  .enhanceEndpoints({ addTagTypes: ["Member", "Group"] })
   .injectEndpoints({
     endpoints: (build) => ({
       getCourseMemberships: build.query<CourseMemberData[], number | string>({
@@ -61,6 +72,24 @@ const membersApi = baseApi
         invalidatesTags: (_, error, { courseId }) =>
           error ? [] : cacher.invalidatesList("Member", [courseId]),
       }),
+
+      batchImportCourseMemberships: build.mutation<
+        MembershipImportResult,
+        MembershipImportData & { courseId: number | string }
+      >({
+        query: ({ courseId, ...membershipImportData }) => ({
+          url: `/courses/${courseId}/memberships/import`,
+          method: "POST",
+          body: membershipImportData,
+        }),
+        invalidatesTags: (_, error, { courseId }) =>
+          error
+            ? []
+            : [
+                ...cacher.invalidatesList("Member", [courseId]),
+                ...cacher.invalidatesList("Group", [courseId]),
+              ],
+      }),
     }),
   });
 
@@ -69,4 +98,5 @@ export const {
   useUpdateCourseMembershipMutation,
   useDeleteCourseMembershipMutation,
   useBatchCreateCourseMembershipsMutation,
+  useBatchImportCourseMembershipsMutation,
 } = membersApi;

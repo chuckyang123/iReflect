@@ -3,6 +3,7 @@
  * | Version | Description                                            | Reference                                     |
  * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
  * | v1.1.0 | CourseSettings type adds showAiScore field            | REQ: 20260824-playtest-score-visibility TECH: tech-design §4.2 |
+ * | v1.2.0 | Added membership import request/result types          | REQ: 20260908-课程名单分组导入 TECH: 04_design_tech-design.md §3.3 |
  * /@changelog
  *
  * @author chuckyang123
@@ -26,6 +27,7 @@ import {
   USER,
   MEMBER_CREATION_DATA,
   EMAIL,
+  GROUP,
 } from "../constants";
 import { BaseData } from "./base";
 import { UserData } from "./users";
@@ -104,4 +106,61 @@ export type MemberCreationData = {
 
 export type CourseMembershipBatchCreateData = {
   [MEMBER_CREATION_DATA]: MemberCreationData[];
+};
+
+export type MembershipImportRowInput = {
+  [EMAIL]: string;
+  [NAME]?: string;
+  [GROUP]?: string;
+};
+
+export type MembershipImportData = {
+  rows: MembershipImportRowInput[];
+};
+
+export type MembershipImportSummary = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  usersCreated: number;
+  membershipsCreated: number;
+  groupsCreated: number;
+  groupMembershipsAdded: number;
+};
+
+export type MembershipImportSuccessRow = {
+  index: number;
+  email: string;
+  name: string;
+  group: string;
+  status: "success";
+  code: string;
+  message: string;
+  data: {
+    userCreated: boolean;
+    membershipCreated: boolean;
+    groupCreated: boolean;
+    groupJoined: boolean;
+    groupName: string;
+  };
+};
+
+export type MembershipImportErrorRow = {
+  index: number;
+  email: string;
+  name: string;
+  group: string;
+  status: "error";
+  code: string;
+  message: string;
+  suggestion: string;
+};
+
+export type MembershipImportRowResult =
+  | MembershipImportSuccessRow
+  | MembershipImportErrorRow;
+
+export type MembershipImportResult = {
+  summary: MembershipImportSummary;
+  rows: MembershipImportRowResult[];
 };

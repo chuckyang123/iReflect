@@ -1,3 +1,12 @@
+"""
+@changelog
+| Version | Description                                            | Reference                                     |
+| v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+| v1.1.0 | Registered memberships/import bulk import endpoint     | REQ: 20260908-课程名单分组导入 TECH: 04_design_tech-design.md §3.3 |
+/@changelog
+
+@author chuckyang123
+"""
 from django.urls import path
 
 from .views import (
@@ -17,7 +26,8 @@ from .views import (
     CourseSubmissionFieldCommentsView,
     CourseSubmissionSingleFieldCommentsView,
     SingleCourseSubmissionCommentView,
-    CourseMembershipsWithNewUserCreationView
+    CourseMembershipsWithNewUserCreationView,
+    CourseMembershipsImportView
 )
 
 urlpatterns = [
@@ -62,6 +72,11 @@ urlpatterns = [
         "<int:course_id>/memberships/new",
         CourseMembershipsWithNewUserCreationView.as_view(),
         name="course_memberships_with_new_user_creation",
+    ),
+    path(
+        "<int:course_id>/memberships/import",
+        CourseMembershipsImportView.as_view(),
+        name="course_memberships_import",
     ),
     path(
         "<int:course_id>/memberships/<int:member_id>/",

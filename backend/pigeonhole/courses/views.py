@@ -3,6 +3,7 @@
 | Version | Description                                            | Reference                                     |
 | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
 | v1.1.0 | CourseView passes through show_ai_score (create/put) | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.5 |
+| v1.2.0 | Added CourseMembershipsImportView (POST memberships/import) | REQ: 20260908-课程名单分组导入 TECH: 04_design_tech-design.md §3.3 |
 /@changelog
 
 @author chuckyang123
@@ -59,6 +60,7 @@ from .logic import (
     course_summary_to_json,
     course_to_json,
     course_milestone_to_json,
+    import_course_members_with_groups,
     create_course,
     create_course_group,
     create_course_membership,
@@ -81,6 +83,7 @@ from .logic import (
 )
 from .serializers import (
     BatchMembershipCreationSerializer,
+    CourseMembershipsImportSerializer,
     CourseMemberCreationDataSerializer,
     GetCourseGroupSerializer,
     GetCourseSubmissionSerializer,
@@ -1194,6 +1197,35 @@ class CourseMembershipsWithNewUserCreationView(APIView):
         data = [course_membership_to_json(membership) for membership in memberships]
 
         return Response(data=data, status=status.HTTP_200_OK)
+
+
+class CourseMembershipsImportView(APIView):
+    """
+    Bulk import course members from uploaded rows with optional automatic
+    grouping. Requires the requester to be a CO-OWNER of the course; this
+    is a course-internal enhancement (RISK-DA001 decision A).
+    """
+
+    @check_account_access(AccountType.STANDARD, AccountType.EDUCATOR, AccountType.ADMIN)
+    @check_course
+    @check_requester_membership(Role.CO_OWNER)
+    def post(
+        self,
+        request,
+        requester: User,
+        course: Course,
+        requester_membership: CourseMembership,
+    ):
+        serializer = CourseMembershipsImportSerializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+
+        result = import_course_members_with_groups(
+            course=course, rows=validated_data["rows"]
+        )
+
+        return Response(data=result, status=status.HTTP_200_OK)
 
 
 class CourseSubmissionViewableGroupsView(APIView):
