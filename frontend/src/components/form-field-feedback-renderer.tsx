@@ -1,3 +1,13 @@
+/**
+ * @changelog
+ * | Version | Description                                            | Reference                                     |
+ * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+ * | v1.1.0 | Student-side score hiding for reflection feedback: hide numeric scores when course disables showAiScore (server also strips) | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.6 |
+ * | v1.1.1 | Strip also matches the "Additional Stage. Readability and Accuracy: x / 2" heading (was leaking the score) | REQ: 20260824-playtest-score-visibility |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 import { Button, Text, Stack, Paper, Blockquote, Title } from "@mantine/core";
 import { useFormContext } from "react-hook-form";
 import { FaRegSmile } from "react-icons/fa";
@@ -10,6 +20,37 @@ import {
 } from "../redux/services/feedback-api";
 import { useResolveError } from "../utils/error-utils";
 import { FeedbackContext } from "../contexts/feedback-data-collection-provider";
+import { useGetSingleCourseQuery } from "../redux/services/courses-api";
+import useGetCourseId from "../custom-hooks/use-get-course-id";
+import useGetCurrentUserAccountType from "../custom-hooks/use-get-current-user-account-type";
+import { AccountType } from "../types/users";
+
+/**
+ * Drop the numeric score markers from educator-grade reflection feedback
+ * markdown (Advanced ChatGPT flow):
+ *   **Stage 1. Returning to Experience: 1 / 2**   ->   **Stage 1. Returning to Experience**
+ *   **Total Score: 10 / 12**                       ->   (line removed)
+ * Qualitative "what was done well / improvement / summary" content is kept.
+ */
+function stripScoresFromFeedbackMarkdown(markdown: string): string {
+  return markdown
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      const stageHeader = trimmed.match(
+        /^(\*\*(?:Stage \d+|Additional Stage)[^*]*?):\s*\d+(?:\.\d+)?\s*\/\s*\d+\s*\*\*$/,
+      );
+      if (stageHeader) return `${stageHeader[1]}**`;
+      if (
+        /^\*\*(?:Total\s+Score|Score|Overall\s+Score)\b[^*]*?:\s*\d/.test(trimmed)
+      ) {
+        return "";
+      }
+      return line;
+    })
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
 
 type Props = {
   name: string;
@@ -43,6 +84,16 @@ function FormFieldFeedbackRenderer({ name, question, collectData }: Props) {
   const { getValues } = useFormContext<{ [name: string]: string }>();
   const feedbackContext = useContext(FeedbackContext);
 
+  // PRD 20260824-playtest-score-visibility: students only see scores when the course
+  // enables showAiScore; educators/admins always see the full feedback.
+  const courseId = useGetCourseId();
+  const accountType = useGetCurrentUserAccountType();
+  const { data: course } = useGetSingleCourseQuery(courseId ?? "", {
+    skip: !courseId,
+  });
+  const shouldHideScores =
+    accountType === AccountType.Standard && course?.showAiScore === false;
+
   const [getFeedback, { isFetching, feedbackResult }] = useLazyGetFeedbackQuery(
     {
       selectFromResult: ({ isFetching, data: feedbackResult }) => ({
@@ -68,13 +119,17 @@ function FormFieldFeedbackRenderer({ name, question, collectData }: Props) {
     }
 
     try {
-      await getFeedback({ content }).unwrap();
+      await getFeedback({
+        content,
+        submission_id: feedbackContext.submissionId,
+        question,
+      }).unwrap();
     } catch (error) {
       resolveError(error);
       return;
     }
 
-    //If form in test mode, responses not considered
+    // If form in test mode, responses not considered
     if (feedbackContext.testMode || !feedbackContext.submissionId) {
       return;
     }
@@ -86,11 +141,8 @@ function FormFieldFeedbackRenderer({ name, question, collectData }: Props) {
     };
 
     try {
-      
       await tryStoreInitialResponse(feedbackPostData).unwrap();
-     
     } catch (error) {
-     
       resolveError(error);
     }
   };
@@ -117,7 +169,9 @@ function FormFieldFeedbackRenderer({ name, question, collectData }: Props) {
               <br />
             </Text>
             <Markdown components={markdownComponents}>
-              {feedbackResult.feedback}
+              {shouldHideScores
+                ? stripScoresFromFeedbackMarkdown(feedbackResult.feedback ?? "")
+                : feedbackResult.feedback}
             </Markdown>
           </Paper>
         </Blockquote>

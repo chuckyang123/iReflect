@@ -1,11 +1,12 @@
 import { Textarea, TextareaProps } from "@mantine/core";
-import { get, useFormContext } from "react-hook-form";
+import { get, RegisterOptions, useFormContext } from "react-hook-form";
 
 type Props = TextareaProps & {
   name: string;
+  rules?: RegisterOptions;
 };
 
-function TextareaField({ name, required, ...props }: Props) {
+function TextareaField({ name, required, rules, ...props }: Props) {
   const {
     formState: { errors },
     register,
@@ -18,7 +19,7 @@ function TextareaField({ name, required, ...props }: Props) {
       withAsterisk={required}
       {...props}
       error={error?.message}
-      {...register(name)}
+      {...register(name, rules)}
     />
   );
 }

@@ -1,3 +1,12 @@
+/**
+ * @changelog
+ * | Version | Description                                            | Reference                                     |
+ * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+ * | v1.1.0 | Added SHOW_AI_SCORE constant                          | REQ: 20260824-playtest-score-visibility TECH: tech-design §4.1 |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 export const APP_NAME = "iReflect";
 export const EMAIL = "email";
 export const PASSWORD = "password";
@@ -33,6 +42,7 @@ export const ALLOW_STUDENTS_TO_MODIFY_GROUP_NAME =
 export const ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS =
   "allowStudentsToAddOrRemoveGroupMembers";
 export const MILESTONE_ALIAS = "milestoneAlias";
+export const SHOW_AI_SCORE = "showAiScore";
 export const ROLE = "role";
 export const FAILED_TOKEN_REFRESH = "failedTokenRefresh";
 export const MEMBER_COUNT = "memberCount";
@@ -95,3 +105,10 @@ export const PLAYTEST_MODE = "mode";
 export const PLAYTEST_RESPONSE = "response";
 export const GENRE = "genre";
 export const MECHANIC = "mechanic";
+export const FEEDBACK_CONTENT = "feedback_content";
+export const IDEMPOTENCY_KEY = "idempotency_key";
+export const RECORD_ID = "record_id";
+export const ANSWER_CONTENT = "answerContent";
+export const VERSION_NUMBER = "versionNumber";
+export const FEEDBACK_RECORDS = "feedbackRecords";
+export const SUBMISSION = "submission";

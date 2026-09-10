@@ -1,3 +1,12 @@
+/**
+ * @changelog
+ * | Version | Description                                            | Reference                                     |
+ * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+ * | v1.1.0 | AI Feedback Settings: showAiScore default + toggle | REQ: 20260824-playtest-score-visibility TECH: tech-design §4.3 |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Group,
@@ -22,6 +31,7 @@ import {
   IS_PUBLISHED,
   MILESTONE_ALIAS,
   NAME,
+  SHOW_AI_SCORE,
   SHOW_GROUP_MEMBERS_NAMES,
 } from "../constants";
 import { useCreateCourseMutation } from "../redux/services/courses-api";
@@ -45,6 +55,7 @@ const schema = z.object({
   [ALLOW_STUDENTS_TO_JOIN_GROUPS]: z.boolean(),
   [ALLOW_STUDENTS_TO_LEAVE_GROUPS]: z.boolean(),
   [ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS]: z.boolean(),
+  [SHOW_AI_SCORE]: z.boolean(),
 });
 
 type CourseCreationFormProps = z.infer<typeof schema>;
@@ -61,6 +72,7 @@ const DEFAULT_VALUES: CourseCreationFormProps = {
   allowStudentsToJoinGroups: false,
   allowStudentsToLeaveGroups: false,
   allowStudentsToAddOrRemoveGroupMembers: false,
+  showAiScore: false,
 };
 
 type Props = {
@@ -328,6 +340,40 @@ function CourseCreationForm({ onSuccess }: Props) {
                 name={ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS}
                 id={ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS}
               />
+            </Group>
+
+            <Title order={4}>AI Feedback Settings</Title>
+
+            <Group position="apart">
+              <Group spacing={4}>
+                <Text<"label">
+                  size="sm"
+                  htmlFor={SHOW_AI_SCORE}
+                  component="label"
+                >
+                  Show AI scores to students
+                </Text>
+                <Tooltip
+                  label={
+                    <Text size="xs">
+                      When disabled, students only see the AI text suggestions
+                      and all numeric scores are hidden. Teachers always see
+                      the scores. This applies to existing feedback immediately.
+                    </Text>
+                  }
+                  withArrow
+                  position="top-start"
+                  transition="pop-top-left"
+                  transitionDuration={300}
+                  multiline
+                  width={240}
+                >
+                  <ThemeIcon color="gray" size="xs" radius="xl">
+                    <FaQuestion size={7} />
+                  </ThemeIcon>
+                </Tooltip>
+              </Group>
+              <SwitchField name={SHOW_AI_SCORE} id={SHOW_AI_SCORE} />
             </Group>
           </Stack>
 

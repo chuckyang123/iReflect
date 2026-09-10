@@ -1,3 +1,12 @@
+/**
+ * @changelog
+ * | Version | Description                                            | Reference                                     |
+ * | v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+ * | v1.1.0 | CourseSettings type adds showAiScore field            | REQ: 20260824-playtest-score-visibility TECH: tech-design §4.2 |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 import {
   NAME,
   OWNER,
@@ -11,6 +20,7 @@ import {
   ALLOW_STUDENTS_TO_MODIFY_GROUP_NAME,
   ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS,
   MILESTONE_ALIAS,
+  SHOW_AI_SCORE,
   ROLE,
   OWNER_ID,
   USER,
@@ -63,6 +73,7 @@ type CourseSettings = {
   [ALLOW_STUDENTS_TO_MODIFY_GROUP_NAME]: boolean;
   [ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS]: boolean;
   [MILESTONE_ALIAS]: string;
+  [SHOW_AI_SCORE]: boolean;
 };
 
 export type CourseData = CourseSummaryData & CourseSettings;

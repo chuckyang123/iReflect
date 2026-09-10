@@ -1,3 +1,12 @@
+"""
+@changelog
+| Version | Description                                            | Reference                                     |
+| v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+| v1.1.0 | CourseSettingsSerializer adds show_ai_score (default=False) | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.3 |
+/@changelog
+
+@author chuckyang123
+"""
 from rest_framework import serializers
 
 from pigeonhole.common.models import MergeSerializersMixin
@@ -29,6 +38,8 @@ class CourseSettingsSerializer(serializers.ModelSerializer):
     milestone_alias = serializers.CharField(
         required=True, max_length=255, allow_blank=True
     )
+    ## default False so POST/PUT without this key still resolves (PRD 20260824)
+    show_ai_score = serializers.BooleanField(required=False, default=False)
 
     class Meta:
         model = CourseSettings
@@ -41,6 +52,7 @@ class CourseSettingsSerializer(serializers.ModelSerializer):
             "allow_students_to_modify_group_name",
             "allow_students_to_add_or_remove_group_members",
             "milestone_alias",
+            "show_ai_score",
         )
 
 

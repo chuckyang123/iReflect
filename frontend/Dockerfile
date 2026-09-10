@@ -2,12 +2,10 @@ FROM node:16-alpine AS build
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SITE_URL
 
-## git is required for pluralize package installation
 RUN apk add --no-cache --virtual .build-deps \
     python3 \
     make \
-    g++ \
-    git
+    g++
 
 ## set custom working directory
 WORKDIR /app

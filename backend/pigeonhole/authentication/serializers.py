@@ -1,3 +1,12 @@
+"""
+@changelog
+| Version | Description                                                                 | Reference                                      |
+| v1.0.0  | Initial implementation: authentication serializers                          |                                                |
+| v1.1.0  | Password-reset confirmation email is best-effort; failure no longer turns a successful reset into a 500 | REQ: 20260904-password-reset-flow |
+/@changelog
+
+@author chuckyang123
+"""
 from datetime import datetime
 import os
 import requests
@@ -320,6 +329,16 @@ class PasswordResetConfirmSerializer(BaseAuthenticationSerializer):
                 detail="An error has occurred while resetting the password."
             )
         
-        send_password_reset_confirmation_mail(user.name, user.email)
+        # The confirmation email is best-effort: a delivery failure (SendGrid
+        # 4xx/5xx, missing template) must not turn an already-completed password
+        # reset into an error response for the user.
+        try:
+            send_password_reset_confirmation_mail(user.name, user.email)
+        except InternalServerError as exc:
+            logger.warning(
+                "Password reset succeeded for %s but confirmation email failed: %s",
+                user.email,
+                exc,
+            )
 
         return {'isResetSuccess': True}

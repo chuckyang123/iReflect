@@ -30,6 +30,19 @@ DEBUG = bool(int(os.getenv("DEBUG", 0)))
 # CORS is disabled in debug mode
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
+# The playtest integration (LightRAG) sends an X-API-Key header. django-cors-headers
+# does not allow custom headers by default, so preflight for /api/playtest/ fails
+# with "Request header field x-api-key is not allowed by Access-Control-Allow-Headers".
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization",
+    "content-type",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+    "x-api-key",
+]
+
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS").split(" ")
 
 CSRF_TRUSTED_ORIGINS = [

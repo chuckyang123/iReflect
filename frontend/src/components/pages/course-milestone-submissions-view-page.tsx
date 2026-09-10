@@ -35,6 +35,7 @@ import useGetCoursePermissions from "../../custom-hooks/use-get-course-permissio
 import ConditionalRenderer from "../conditional-renderer";
 import { SubmissionType } from "../../types/templates";
 import CourseSubmissionPublishSection from "../course-submission-publish-section";
+import CourseSubmissionFeedbackHistorySection from "../course-submission-feedback-history-section";
 
 const useStyles = createStyles({
   formContainer: {
@@ -274,6 +275,13 @@ function CourseMilestoneSubmissionsViewPage() {
           submitButtonProps={{ disabled: isDeleting }}
         />
       </Paper>
+
+      <ConditionalRenderer allow={canAccessFullDetails}>
+        <CourseSubmissionFeedbackHistorySection
+          courseId={courseId}
+          submissionId={submissionId}
+        />
+      </ConditionalRenderer>
     </Stack>
   );
 }

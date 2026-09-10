@@ -1,3 +1,12 @@
+"""
+@changelog
+| Version | Description                                            | Reference                                     |
+| v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+| v1.1.0 | create_course/update_course now pass through show_ai_score | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.4 |
+/@changelog
+
+@author chuckyang123
+"""
 import logging
 from typing import Optional, Sequence
 from datetime import datetime
@@ -20,6 +29,7 @@ from pigeonhole.common.constants import (
     ALLOW_STUDENTS_TO_MODIFY_GROUP_NAME,
     ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS,
     MILESTONE_ALIAS,
+    SHOW_AI_SCORE,
     START_DATE_TIME,
     END_DATE_TIME,
     ROLE,
@@ -144,6 +154,7 @@ def course_to_json(course: Course, membership: CourseMembership) -> dict:
         ALLOW_STUDENTS_TO_MODIFY_GROUP_NAME: course_settings.allow_students_to_modify_group_name,
         ALLOW_STUDENTS_TO_ADD_OR_REMOVE_GROUP_MEMBERS: course_settings.allow_students_to_add_or_remove_group_members,
         MILESTONE_ALIAS: course_settings.milestone_alias,
+        SHOW_AI_SCORE: course_settings.show_ai_score,
     }
 
     return data
@@ -308,6 +319,7 @@ def create_course(
     allow_students_to_modify_group_name: bool,
     allow_students_to_add_or_remove_group_members: bool,
     milestone_alias: str,
+    show_ai_score: bool,
 ) -> tuple[Course, CourseMembership]:
     new_course = Course.objects.create(
         owner=owner,
@@ -327,6 +339,7 @@ def create_course(
         allow_students_to_modify_group_name=allow_students_to_modify_group_name,
         allow_students_to_add_or_remove_group_members=allow_students_to_add_or_remove_group_members,
         milestone_alias=milestone_alias.lower(),
+        show_ai_score=show_ai_score,
     )
 
     ## IMPORTANT!! make owner as course member
@@ -352,6 +365,7 @@ def update_course(
     allow_students_to_modify_group_name: bool,
     allow_students_to_add_or_remove_group_members: bool,
     milestone_alias: str,
+    show_ai_score: bool,
 ) -> Course:
     try:
         owner_membership = (
@@ -391,6 +405,7 @@ def update_course(
         allow_students_to_add_or_remove_group_members
     )
     course_settings.milestone_alias = milestone_alias.lower()
+    course_settings.show_ai_score = show_ai_score
     course_settings.save()
 
     return course

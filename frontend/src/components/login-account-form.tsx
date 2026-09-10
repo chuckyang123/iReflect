@@ -13,7 +13,7 @@ import CheckboxField from "./checkbox-field";
 import loggedIn from "../redux/thunks/logged-in";
 import {
   usePasswordLoginMutation,
-  useLazyPasswordResetQuery,
+  usePasswordResetMutation,
 } from "../redux/services/auth-api";
 import { handleSubmitForm } from "../utils/form-utils";
 import { LoginContext } from "../contexts/login-provider";
@@ -55,7 +55,7 @@ function LoginAccountForm() {
   const [passwordLogin] = usePasswordLoginMutation({
     selectFromResult: emptySelector,
   });
-  const [passwordReset] = useLazyPasswordResetQuery({
+  const [passwordReset] = usePasswordResetMutation({
     selectFromResult: emptySelector,
   });
   const {

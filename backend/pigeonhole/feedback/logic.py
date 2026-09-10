@@ -1,9 +1,28 @@
+"""
+@changelog
+| Version | Description                                      | Reference                                   |
+| v1.0.0  | Initial implementation: ChatGPT feedback generation and initial response collection |                                             |
+| v1.1.0  | Added create_feedback_version_and_record:       | REQ: 20260818-feedback-modification-tracking |
+|         | transactional answer version snapshot + AI feedback record + idempotent dedup | TECH: 04_design_tech-design.md §3.3          |
+| v1.2.0  | ai_feedback_record_to_json gains include_score parameter | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.6 |
+| v1.3.0  | FeedbackAnswerVersion links to submission; JSON output includes submission | REQ: 20260818-feedback-modification-tracking TECH: tech-design §3.3 |
+| v1.4.0  | askChatGPT/askChatGPTOriginal fall back to mock feedback without OPENAI_API_KEY for local demo & testing | DEV: local demo without paid AI key |
+| v1.5.0  | Production (DEBUG=False) without OPENAI_API_KEY raises FeedbackNotConfiguredError instead of emitting fake scores | PRD: production must fail loudly, mock is DEV-only |
+| v1.6.0  | Added strip_scores_from_feedback_text + resolve_show_ai_score so reflection feedback sent to students can be score-stripped server-side | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.6 |
+| v1.6.1  | strip_scores_from_feedback_text now also strips the "Additional Stage. Readability and Accuracy: x / 2" heading (was leaking the score) | REQ: 20260824-playtest-score-visibility |
+/@changelog
+
+@author chuckyang123
+"""
 import logging
 import os
+import re
+import time
 
 from courses.models import (Course, CourseMembership, CourseMilestone,
                             CourseMilestoneTemplate, CourseSubmission)
 from django.db import transaction
+from django.db.models import Max
 from django.conf import settings
 from openai import OpenAI
 import pandas as pd
@@ -20,9 +39,17 @@ from pigeonhole.common.parsers import to_base_json
 from users.logic import user_to_json
 from users.models import User
 
-from .models import FeedbackInitialResponse
+from .models import AIFeedbackRecord, FeedbackAnswerVersion, FeedbackInitialResponse
 
 logger = logging.getLogger("main")
+
+
+class FeedbackNotConfiguredError(RuntimeError):
+    """Raised when an AI provider (OpenAI / LightRAG) is required in a
+    non-debug environment but its credentials or endpoint are not configured.
+    The API layer converts this into a 503 so production fails loudly instead
+    of serving simulated (score-less) feedback that could mislead students."""
+
 
 ## TODO: this is only a temporary implemention. Should not rely on webscraping in the long run.
 def answer_reflection(driver, element_class, reflection):
@@ -99,10 +126,145 @@ def analyse(text):
     return results
 
 
+def _usage_to_dict(query_usage) -> dict:
+    """Convert the usage object returned by OpenAI into a serializable dictionary."""
+    if query_usage is None:
+        return None
+    return {
+        "prompt_tokens": query_usage.prompt_tokens,
+        "completion_tokens": query_usage.completion_tokens,
+        "total_tokens": query_usage.total_tokens,
+    }
+
+
+def _merge_usage_dicts(usage_list) -> dict:
+    """Aggregate token usage across multiple calls (single call in Basic mode, multiple in Advanced mode)."""
+    merged = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+    }
+    for usage in usage_list:
+        if usage is None:
+            continue
+        merged["prompt_tokens"] += usage.get("prompt_tokens", 0)
+        merged["completion_tokens"] += usage.get("completion_tokens", 0)
+        merged["total_tokens"] += usage.get("total_tokens", 0)
+        merged["call_count"] += 1
+    return merged
+
+
+def _feedback_to_score_json(response: "Feedback", averaged_scores: list) -> dict:
+    """Extract the 6-stage score breakdown from the structured Feedback response for research analysis."""
+    total_score = (
+        response.stage_1.score
+        + response.stage_2.score
+        + response.stage_3.score
+        + response.stage_4.score
+        + response.stage_5.score
+        + response.additional_stage.score
+    )
+    return {
+        "stage_1_score": response.stage_1.score,
+        "stage_2_score": response.stage_2.score,
+        "stage_3_score": response.stage_3.score,
+        "stage_4_score": response.stage_4.score,
+        "stage_5_score": response.stage_5.score,
+        "additional_stage_score": response.additional_stage.score,
+        "total_score": total_score,
+        "averaged_stage_scores": averaged_scores,
+    }
+
+
+def resolve_show_ai_score(submission_id: int) -> bool | None:
+    """Resolve the course's ``show_ai_score`` setting through one of its submissions.
+
+    Returns None when the submission (and thus its course) cannot be resolved;
+    callers keep scores visible in that case rather than guessing.
+    """
+    try:
+        submission = CourseSubmission.objects.select_related(
+            "course__coursesettings"
+        ).get(id=submission_id)
+    except CourseSubmission.DoesNotExist:
+        return None
+
+    course_settings = getattr(submission.course, "coursesettings", None)
+    if course_settings is None:
+        return None
+    return bool(course_settings.show_ai_score)
+
+
+def strip_scores_from_feedback_text(feedback: str) -> str:
+    """Remove numeric scoring markers from educator-grade reflection feedback.
+
+    The Advanced ChatGPT flow formats each stage as
+    ``**Stage N. <title>: x / 2**`` and closes with ``**Total Score: xx / 12**``.
+    Hiding scores (PRD 20260824-playtest-score-visibility) keeps the stage
+    headings and the qualitative "done well / improvement" comments but drops
+    the numbers, so students never see a score when the course disables
+    ``show_ai_score``.
+
+    The Basic flow returns free-form text; only reliably-formatted standalone
+    score lines are removed there. Applied server-side so students cannot get
+    the scores by calling the API directly.
+    """
+    if not feedback:
+        return feedback
+
+    stage_header = re.compile(
+        r"^(\*\*(?:Stage \d+|Additional Stage)[^*]*?):\s*\d+(?:\.\d+)?\s*/\s*\d+\s*\*\*$"
+    )
+    score_line = re.compile(
+        r"^\*\*(?:Total\s+Score|Score|Overall\s+Score)\b[^*]*?:\s*\d"
+    )
+
+    lines = []
+    for line in feedback.splitlines():
+        trimmed = line.strip()
+        match = stage_header.match(trimmed)
+        if match:
+            # Keep the stage heading text, drop its "x / 2" suffix
+            lines.append(match.group(1) + "**")
+            continue
+        if score_line.match(trimmed):
+            # Standalone total/score lines carry no qualitative content
+            continue
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
+def _mock_openai_feedback(text: str) -> str:
+    """Simulated feedback used when OPENAI_API_KEY is not configured, so the
+    full feedback + version-history flow can still be exercised locally.
+
+    Deliberately contains NO numeric scores: the mock is also what students
+    see, and a score-carrying mock would bypass the show_ai_score hiding
+    (PRD 20260824-playtest-score-visibility). Real OpenAI output still carries
+    scores and is stripped student-side by stripScoresFromMarkdown."""
+    preview = " ".join(text.split())[:200]
+    return (
+        "**Professor Feedback:** "
+        f"(Local mock mode – OPENAI_API_KEY not set) Simulated feedback for: "
+        f"\"{preview}\""
+    )
+
+
 # Returns response from ChatGPT in a single string, which might contain newlines.
 # Uses a basic prompt
 def askChatGPTOriginal(text):
-
+    if not os.getenv("OPENAI_API_KEY"):
+        if settings.DEBUG:
+            logger.warning(
+                "OPENAI_API_KEY is not set; falling back to mock feedback (DEBUG only)."
+            )
+            return _mock_openai_feedback(text), None, None, 0
+        raise FeedbackNotConfiguredError(
+            "OPENAI_API_KEY is not configured. AI feedback generation is unavailable in this environment."
+        )
+    start_time = time.time()
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     # Text prompt to generate feedback for the given reflection text
@@ -140,18 +302,34 @@ def askChatGPTOriginal(text):
     # Log usage
     logger.info(query.usage) 
 
-    return response 
+    usage = _usage_to_dict(query.usage)
+    latency_ms = (time.time() - start_time) * 1000
+
+    return response, None, usage, latency_ms
 
 
 # Returns response from ChatGPT in a single string, which might contain newlines.
 # Uses advanced prompt engineering techniques
 def askChatGPT(text):
+    if not os.getenv("OPENAI_API_KEY"):
+        if settings.DEBUG:
+            logger.warning(
+                "OPENAI_API_KEY is not set; falling back to mock feedback (DEBUG only)."
+            )
+            return _mock_openai_feedback(text), None, None, 0
+        raise FeedbackNotConfiguredError(
+            "OPENAI_API_KEY is not configured. AI feedback generation is unavailable in this environment."
+        )
+    start_time = time.time()
+    scores, score_usages = askChatGPTForScore(text)
+    response, feedback_usage = askChatGPTForFeedback(text, scores)
+    formatted_response = formatResponse(response)
 
-    scores = askChatGPTForScore(text)
-    response = askChatGPTForFeedback(text, scores)
-    formatted_response = formatResponse(response)    
+    score_json = _feedback_to_score_json(response, scores)
+    usage = _merge_usage_dicts([*score_usages, feedback_usage])
+    latency_ms = (time.time() - start_time) * 1000
 
-    return formatted_response 
+    return formatted_response, score_json, usage, latency_ms
 
 class Grade(BaseModel):
     stage_1_score: int
@@ -171,6 +349,7 @@ def askChatGPTForScore(text):
     f.close()
 
     df = pd.DataFrame(columns=['Stage 1', 'Stage 2', 'Stage 3', 'Stage 4', 'Stage 5', 'Additional Stage'])
+    usages = []
 
     for i in range(3):
         query = client.beta.chat.completions.parse(
@@ -198,9 +377,9 @@ def askChatGPTForScore(text):
 
         # Log usage
         logger.info(query.usage)
+        usages.append(_usage_to_dict(query.usage))
 
-
-    return df.mean(axis=0).tolist()
+    return df.mean(axis=0).tolist(), usages
 
 class Stage(BaseModel):
     score: float
@@ -248,8 +427,9 @@ def askChatGPTForFeedback(text, scores):
 
     # Log usage
     logger.info(query.usage)
+    usage = _usage_to_dict(query.usage)
 
-    return response 
+    return response, usage
 
 def formatResponse(response):
     total_score = response.stage_1.score + response.stage_2.score + response.stage_3.score +\
@@ -367,3 +547,139 @@ def feedback_initial_response_to_json(response: FeedbackInitialResponse) -> dict
     }
 
     return data
+
+
+def feedback_answer_version_to_json(version: FeedbackAnswerVersion) -> dict:
+    data = to_base_json(version)
+
+    data |= {
+        NAME: version.name,
+        QUESTION: version.question,
+        "answer_content": version.answer_content,
+        "version_number": version.version_number,
+        GENRE: version.genre,
+        MECHANIC: version.mechanic,
+        CREATOR: user_to_json(version.creator.user)
+        if version.creator is not None
+        else None,
+        MILESTONE: {ID: version.milestone.id, NAME: version.milestone.name}
+        if version.milestone is not None
+        else None,
+        COURSE: {ID: version.course.id, NAME: version.course.name}
+        if version.course is not None
+        else None,
+        "submission": {ID: version.submission.id, NAME: version.submission.name}
+        if version.submission is not None
+        else None,
+    }
+
+    return data
+
+
+def ai_feedback_record_to_json(
+    record: AIFeedbackRecord, include_score: bool = True
+) -> dict:
+    """Serialize an AI feedback record to JSON.
+
+    `include_score` (default True) controls whether `score_json` is exposed.
+    Set to False in student-facing endpoints so numeric scores stay hidden
+    when a course disables `show_ai_score` (PRD 20260824-playtest-score-visibility).
+    Teachers always keep the score (include_score=True).
+    """
+    data = to_base_json(record)
+
+    data |= {
+        "version": feedback_answer_version_to_json(record.version),
+        "feedback_type": record.feedback_type,
+        "strategy": record.strategy,
+        "score_json": record.score_json if include_score else None,
+        "feedback_content": record.feedback_content,
+        "model_version": record.model_version,
+        "token_usage_json": record.token_usage_json,
+        "latency_ms": record.latency_ms,
+    }
+
+    return data
+
+
+@transaction.atomic
+def create_feedback_version_and_record(
+    submission_id: int,
+    requester: User,
+    question: str,
+    answer_content: str,
+    feedback_type: str,
+    strategy: str,
+    feedback_content: str,
+    idempotency_key: str | None = None,
+    score_json: dict | None = None,
+    model_version: str = "",
+    token_usage_json: dict | None = None,
+    latency_ms: float | None = None,
+    genre: str | None = None,
+    mechanic: str | None = None,
+) -> AIFeedbackRecord:
+    """Create an answer version snapshot and an AI feedback record within a transaction.
+
+    - Returns the existing record when an idempotency key is provided (RISK-DA006, prevents duplicate writes on network retries)
+    - Version number increments by Max+1 per student/question dimension
+    - The whole operation runs in a single transaction; any failure rolls everything back
+    """
+    # Idempotent dedup: repeated submissions with the same idempotency_key return the existing record
+    if idempotency_key:
+        existing = AIFeedbackRecord.objects.filter(idempotency_key=idempotency_key).first()
+        if existing is not None:
+            logger.info("Idempotent feedback record hit for key=%s", idempotency_key)
+            return existing
+
+    try:
+        submission = CourseSubmission.objects.select_related(
+            "course", "milestone", "template"
+        ).get(id=submission_id)
+    except CourseSubmission.DoesNotExist as e:
+        logger.warning(e)
+        raise ValueError("No such submission found.")
+
+    try:
+        requester_membership = submission.course.coursemembership_set.get(user=requester)
+    except CourseMembership.DoesNotExist as e:
+        logger.warning(e)
+        raise ValueError("No such user found in given course.")
+
+    # Version increment: Max+1 within the same (course, milestone, template, creator, question)
+    max_version = FeedbackAnswerVersion.objects.filter(
+        course=submission.course,
+        milestone=submission.milestone,
+        template=submission.template,
+        creator=requester_membership,
+        question=question,
+    ).aggregate(max_version=Max("version_number"))["max_version"]
+    version_number = (max_version or 0) + 1
+
+    version = FeedbackAnswerVersion.objects.create(
+        course=submission.course,
+        milestone=submission.milestone,
+        template=submission.template,
+        submission=submission,
+        creator=requester_membership,
+        name=submission.template.__str__(),
+        question=question,
+        answer_content=answer_content,
+        version_number=version_number,
+        genre=genre,
+        mechanic=mechanic,
+    )
+
+    record = AIFeedbackRecord.objects.create(
+        version=version,
+        feedback_type=feedback_type,
+        strategy=strategy,
+        score_json=score_json,
+        feedback_content=feedback_content,
+        model_version=model_version,
+        token_usage_json=token_usage_json,
+        latency_ms=latency_ms,
+        idempotency_key=idempotency_key,
+    )
+
+    return record

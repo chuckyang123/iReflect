@@ -1,3 +1,12 @@
+"""
+@changelog
+| Version | Description                                            | Reference                                     |
+| v1.0.0 | Initial implementation (indexed baseline)              |                                               |
+| v1.1.0 | CourseView passes through show_ai_score (create/put) | REQ: 20260824-playtest-score-visibility TECH: tech-design §3.5 |
+/@changelog
+
+@author chuckyang123
+"""
 import logging
 from collections import Counter
 
@@ -157,6 +166,7 @@ class MyCoursesView(APIView):
                 "allow_students_to_add_or_remove_group_members"
             ],
             milestone_alias=validated_data["milestone_alias"],
+            show_ai_score=validated_data["show_ai_score"],
         )
 
         data = course_summary_to_json(course=new_course, membership=new_membership)
@@ -228,6 +238,7 @@ class SingleCourseView(APIView):
                     "allow_students_to_add_or_remove_group_members"
                 ],
                 milestone_alias=validated_data["milestone_alias"],
+                show_ai_score=validated_data["show_ai_score"],
             )
         except ValueError as e:
             raise BadRequest(detail=e)

@@ -1,3 +1,12 @@
+/**
+ * @changelog
+ * | Version | Description                                                                  | Reference                                      |
+ * | v1.0.0 | Initial implementation: authentication endpoints                             |                                                |
+ * | v1.1.0 | passwordReset converted from query to mutation so repeated clicks actually re-send the request (RTK Query caches queries) | REQ: 20260904-password-reset-flow |
+ * /@changelog
+ *
+ * @author chuckyang123
+ */
 import baseApi from "./base-api";
 import {
   AuthenticationData,
@@ -26,7 +35,7 @@ const authApi = baseApi.injectEndpoints({
       }),
       extraOptions: { includeAuth: false },
     }),
-    passwordReset: build.query<PasswordResetDetails, CheckAccountPostData>({
+    passwordReset: build.mutation<PasswordResetDetails, CheckAccountPostData>({
       query: (data) => ({
         url: "/gateway/reset/",
         method: "POST",
@@ -50,7 +59,7 @@ const authApi = baseApi.injectEndpoints({
 
 export const {
   usePasswordResetConfirmMutation,
-  useLazyPasswordResetQuery,
+  usePasswordResetMutation,
   usePasswordLoginMutation,
   useLazyCheckAccountQuery,
 } = authApi;
