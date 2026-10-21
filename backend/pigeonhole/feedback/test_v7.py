@@ -230,6 +230,40 @@ class PlaytestProxyIntegration(unittest.TestCase):
         self.assertEqual(res.status_code,503)
         self.assertNotIn("response",res.data)
 
+    def test_unreachable_lightrag_is_not_reported_as_missing_config(self):
+        import requests as _requests
+        with patch.dict("os.environ",{"LIGHTRAG_URL":"http://offline.invalid"}), \
+             patch("feedback.playtest.requests.post",
+                   side_effect=_requests.ConnectionError("refused")):
+            res=self.post({"query":"query","question":"task","answer":"answer"})
+        self.assertEqual(res.status_code,503)
+        # LIGHTRAG_URL is set here, so blaming the configuration hides the
+        # real fault (a LightRAG service that cannot be reached).
+        self.assertNotIn("not configured",res.data["detail"])
+        self.assertIn("LightRAG",res.data["detail"])
+
+    def test_empty_knowledge_graph_is_reported_as_no_context(self):
+        # An empty LightRAG graph answers 200 with a canned reply. It carries no
+        # score block, so without this check it surfaces as a misleading
+        # "score block could not be separated" instead of the real cause.
+        remote=MagicMock()
+        remote.json.return_value={"response":"Sorry, I'm not able to provide an answer to that question.[no-context]"}
+        with patch.dict("os.environ",{"LIGHTRAG_URL":"http://offline.invalid"}), \
+             patch("feedback.playtest.requests.post",return_value=remote), \
+             patch("feedback.playtest.generate_feedback") as fb:
+            res=self.post({"query":"query","question":"task","answer":"answer"})
+        self.assertEqual(res.status_code,503)
+        self.assertIn("no context",res.data["detail"])
+        self.assertNotIn("separated",res.data["detail"])
+        fb.assert_not_called()
+
+    def test_missing_url_config_is_reported_as_missing_config(self):
+        env={"LIGHTRAG_URL":""}
+        with patch.dict("os.environ",env):
+            res=self.post({"query":"query","question":"task","answer":"answer"})
+        self.assertEqual(res.status_code,503)
+        self.assertIn("not configured",res.data["detail"])
+
     def test_configured_provider_requires_separate_task_and_answer(self):
         with patch.dict("os.environ",{"LIGHTRAG_URL":"http://offline.invalid"}), \
              patch("feedback.playtest.requests.post") as remote:
