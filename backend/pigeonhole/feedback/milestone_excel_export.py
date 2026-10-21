@@ -25,6 +25,11 @@
 |         | (not finalizationReason). Reading only the      |                                             |
 |         | camelCase key found nothing even though the     |                                             |
 |         | student had answered and saved.                 |                                             |
+| v1.6.0  | Export the playtest Genre and Main Mechanic on   | REQ: 20261021-export-genre-mechanic           |
+|         | the feedback sheet: both are chosen by the       |                                             |
+|         | student and stored on FeedbackAnswerVersion,     |                                             |
+|         | but were omitted, so the knowledge-graph half    |                                             |
+|         | of the score could not be reviewed.              |                                             |
 /@changelog
 
 @author chuckyang123
@@ -85,6 +90,11 @@ FEEDBACK_HEADER = [
     "Initial Response", "Feedback Type", "Strategy", "Model", "Prompt Tokens",
     "Completion Tokens", "Total Tokens", "Latency (ms)", "Feedback Created At (UTC)",
     "Feedback Content", "Score JSON",
+    # Genre/Main Mechanic are chosen by the student when generating playtest
+    # feedback and drive the knowledge-graph half of the score, so a reviewer
+    # needs them next to the grading. Appended last so the existing column
+    # order stays stable for anyone reading the sheet by position.
+    "Genre", "Main Mechanic",
 ]
 
 
@@ -316,6 +326,10 @@ def build_workbook(user, course_id, milestone_id):
             prompt, completion, total, record.latency_ms, iso_utc(record.created_at),
             cell_text(record.feedback_content),
             cell_text(json.dumps(record.score_json, ensure_ascii=False)) if record.score_json is not None else None,
+            # Genre/Main Mechanic live on the answer version, not on the
+            # feedback record, and are absent for non-playtest feedback.
+            cell_text(version.genre),
+            cell_text(version.mechanic),
         ]
         sheet.append(row)
 

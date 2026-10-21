@@ -37,13 +37,13 @@ HISTORY = "AI Feedback History"
 class MilestoneExcelExportTests(TransactionTestCase):
     setUp = AIFeedbackBase.setUp
 
-    def record(self, answer, number, question="Why?", **kwargs):
+    def record(self, answer, number, question="Why?", genre=None, mechanic=None, **kwargs):
         """Create one answer version plus the feedback record attached to it."""
         version = FeedbackAnswerVersion.objects.create(
             course=self.course, milestone=self.milestone, template=self.template,
             submission=self.submission, creator=self.student_membership,
             name="Reflection", question=question, answer_content=answer,
-            version_number=number,
+            version_number=number, genre=genre, mechanic=mechanic,
         )
         fields = {
             "version": version, "feedback_type": AIFeedbackRecord.FEEDBACK_TYPE_REFLECTION,
@@ -77,7 +77,13 @@ class MilestoneExcelExportTests(TransactionTestCase):
     def as_dicts(self, sheet):
         rows = list(sheet.iter_rows(values_only=True))
         header = list(rows[0]) if rows else []
-        return [dict(zip(header, row)) for row in rows[1:]]
+        # openpyxl trims trailing empty cells, so a row whose last columns are
+        # blank is shorter than the header and zip() silently drops those
+        # columns. Pad to the header length so every column is always present.
+        return [
+            dict(zip(header, list(row) + [None] * (len(header) - len(row))))
+            for row in rows[1:]
+        ]
 
     def test_teacher_downloads_workbook_with_submissions_and_headers(self):
         self.form.form_field_data = [
@@ -263,6 +269,23 @@ class MilestoneExcelExportTests(TransactionTestCase):
         self.assertIsNone(row["Total Tokens"])
         self.assertEqual(row["Latency (ms)"], 10)
         self.assertEqual(json.loads(row["Score JSON"]), {"stage_1": 1})
+
+    def test_feedback_history_row_carries_genre_and_mechanic(self):
+        # Genre/Main Mechanic are chosen by the student and drive the
+        # knowledge-graph half of the playtest score, so a reviewer needs them
+        # next to the grading. They live on the answer version, not the record.
+        self.record("v1 answer", 1, genre="Action", mechanic="Mobility & Movement")
+        row = self.sheets(self.download())[HISTORY][0]
+        self.assertEqual(row["Genre"], "Action")
+        self.assertEqual(row["Main Mechanic"], "Mobility & Movement")
+
+    def test_feedback_history_genre_and_mechanic_blank_when_not_playtested(self):
+        # Reflection feedback never goes through playtest, so both columns must
+        # stay empty instead of breaking the export.
+        self.record("v1 answer", 1)
+        row = self.sheets(self.download())[HISTORY][0]
+        self.assertIsNone(row["Genre"])
+        self.assertIsNone(row["Main Mechanic"])
 
     def test_token_usage_keys_tolerated(self):
         self.record("camel", 1, token_usage_json={"promptTokens": 5, "completionTokens": 2, "totalTokens": 7})
